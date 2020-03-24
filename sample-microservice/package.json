@@ -1,0 +1,23 @@
+{
+  "name": "phub-microservice-payments-welcome",
+  "version": "0.1.1",
+  "description": "Sample app for payments hub DevOps knowledge sharing",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "./node_modules/.bin/mocha -R spec test/test-message.js"
+  },
+  "author": "Ashwin",
+  "license": "ISC",
+  "publishConfig": {
+    "registry": "http://172.17.0.3:8081/artifactory/api/npm/npm/"
+  },
+  "dependencies": {
+    "express": "^4.16.4"
+  },
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "mocha": "^5.2.0",
+    "supertest": "^3.3.0"
+  }
+}

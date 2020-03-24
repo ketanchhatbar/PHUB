@@ -1,0 +1,282 @@
+import groovy.json.JsonOutput
+
+String cronCondition = env.BRANCH_NAME == "develop" ? "*/2 * * * *" : ""
+
+pipeline {
+	agent any
+  triggers { pollSCM(cronCondition) }
+	stages {
+	     stage('Initialize') {
+            steps {
+                 script {
+                      echo 'Branch = [' + env.BRANCH_NAME + ']'
+                      echo 'Workspace = [' + env.WORKSPACE + ']'
+                      echo 'Reading main project config JSON'
+                      deploymentMap = initializeProjectConfig()
+                      deploymentMap.branchName = env.BRANCH_NAME
+                      deploymentMap.buildDir = env.WORKSPACE
+                      deploymentMap.buildNumber = env.BUILD_NUMBER
+                      deploymentMap.timeStamp = currentBuild.startTimeInMillis
+                      deploymentMap.commitHash = sh (script: "git log -n 1 --pretty=format:'%H'", returnStdout: true)
+                      env.SEND_EMAIL_ON_FAILURE = deploymentMap.sendEmailOnFailure
+                      echo '\u27A1 Initial deploymentMap Content:'
+                      echo JsonOutput.prettyPrint(deploymentMap.toString())
+                      // version currently set in the package.json file
+                      currentVersion = getVersionTag(deploymentMap)
+                      deploymentMap.currentVersion = currentVersion
+                      // initialzing updated version to current version
+                      updatedVersion = currentVersion
+                      if(deploymentMap.branchName.startsWith("release/") && deploymentMap.notifyReleaseVersionSelectors && deploymentMap.buildNumber == "1") {
+                          configFileProvider([configFile(fileId: deploymentMap.releaseVersionSelectorsFileId, variable: 'SELECTORS')]) {
+                               releaseVersionSelectorsList = readFile encoding: 'UTF-8', file: env.SELECTORS
+                               templateName = deploymentMap.emailTemplate
+                               sendEmail("Jenkins - Select Release Version for branch [${env.BRANCH_NAME}]", '${SCRIPT, template="'+templateName+'"}', releaseVersionSelectorsList)
+                          }
+                      }
+                      updatedVersion = determineVersion(env.BRANCH_NAME, currentVersion)
+                      deploymentMap.updatedVersion = updatedVersion
+                      deploymentMap.currentVersion = currentVersion 
+                      echo 'package.json version tag = [' + currentVersion + ']'
+                      echo 'version will be updated to/as = [' + updatedVersion + ']'
+                      configFileProvider([configFile(fileId: deploymentMap.deploymentFileId, variable: 'DEPLOYMENTS')]) {
+                            def deploymentList = readJSON file: env.DEPLOYMENTS
+                            deploymentMap.deployments = deploymentList
+                      }
+                      echo '\u27A1 Final deploymentMap Content:'
+                      echo JsonOutput.prettyPrint(deploymentMap.toString())
+                 }
+            }
+	     }
+	     stage('Build And Unit Test') {
+            steps {
+                 script {
+                      echo 'Triggering build pipeline job at ' + deploymentMap.buildPipelineJob
+                      buildResult = buildAndUnitTest(deploymentMap)
+                      if(buildResult != null && buildResult?.result == 'FAILURE') {
+                           currentBuild?.result = 'FAILURE'
+                           error 'Build and unit testing failed'
+                      }
+                      milestone label: 'Unit Tests Completed', ordinal: 1
+                 }
+            }
+	     }
+	     stage('Package') {
+	          when {
+	            allOf {
+	                anyOf {
+	                     branch 'develop'
+	                     branch 'release/*'
+	                     branch 'master'
+                       branch 'hotfix/*'
+	                }
+	            }
+	          }
+            steps {
+                 script {
+                      echo 'Triggering package pipeline job at ' + deploymentMap.packagePipelineJob
+                      packageResult = packageAndBuildDockerImage(deploymentMap)
+                      if(packageResult != null && packageResult?.result == 'FAILURE') {
+                           currentBuild?.result = 'FAILURE'
+                           error 'Package and Docker image build failure'
+                      }
+                      updateVersionOnRepository(deploymentMap)
+                      milestone label: 'Package stage completed', ordinal: 2
+                 }
+            }
+	     }
+	     stage('Deploy') {
+            when {
+                 allOf {
+                      anyOf {
+                           branch 'develop'
+                           branch 'release/*'
+                           branch 'master'
+                      }
+                 }
+            }
+            steps {
+                 script {
+                     echo "Fetching updated version tag"
+                     def updatedTag = getVersionTag(deploymentMap)
+                     echo "Version is now ${updatedTag}"
+                     def track = deploymentMap.branchName.startsWith("release/") ? "release" : deploymentMap.branchName
+                     echo "Current deployment track is ${track}"
+                     deploy(deploymentMap, track, updatedTag)
+                 }
+            }
+	     }
+	}
+  post {
+       failure {
+          echo 'Attempting build failure email notification'
+          sendEmail("Jenkins - Build Failure [${env.BUILD_TAG}]", '${SCRIPT, template="jenkins-email.template"}', emailextrecipients([
+                  [$class: 'CulpritsRecipientProvider'],
+                  [$class: 'DevelopersRecipientProvider'],
+                  [$class: 'RequesterRecipientProvider']
+              ])
+          )
+       }
+  }
+}
+
+def initializeProjectConfig() {
+	try {
+	     configFileProvider([configFile(fileId: 'project-config', variable: 'CONFIG')]) {
+	          def value = readJSON file: env.CONFIG
+	          echo '\u27A1 Jenkins Project Config File Content:'
+	          echo JsonOutput.prettyPrint(value.toString())
+	          return value
+	     }
+	} catch(err) {
+	     echo 'Invalid/Missing project config - Confirm JSON file project-config has been added'
+         echo "${err}"
+         error "${err}"
+	}
+}
+
+def getVersionTag(deploymentMap) {
+	try {
+	     node {
+	          dir(deploymentMap.buildDir) {
+	               def value = readJSON file: 'package.json'
+	               echo '\u27A1 package.json File Content:'
+	               echo JsonOutput.prettyPrint(value.toString())
+                   def version = value.version
+                   return version
+	          }
+	     }
+	} catch(err) {
+	     echo 'Unable to extract semantic version from package.json file'
+	     echo "${err}"
+	     error "${err}"
+	}
+}
+
+def determineVersion(branch, currentVersion) {
+	if((branch.startsWith("release/") || branch.startsWith("hotfix/")) && deploymentMap.buildNumber == "1") {
+         if(branch.startsWith("hotfix/")) {
+              return "patch"
+         } else {
+              def branchTag = branch.substring(8)
+              def branchVersion = branchTag.substring(0 , 5)
+              def branchVersionCategory = branchTag.substring(6)
+              def finalVersion = null
+              timeout(time: 1, unit: 'HOURS') {
+                   finalVersion = input message: 'Select A Version',
+                   ok: 'Select',
+                   parameters: [choice(name: 'Version', choices: "${branchVersion}\n${branchVersionCategory}", description: 'Select A Versioning Strategy')]
+              }
+              return finalVersion
+         }
+	} else {
+         return currentVersion
+	}
+}
+
+def buildAndUnitTest(deploymentMap) {
+    def result = null
+    try {
+		result = build(job: deploymentMap.buildPipelineJob, parameters: [
+		  [$class: 'StringParameterValue', name: 'deploymentMap', value: deploymentMap.toString()]
+		], propagate: true, wait: true)
+		return result
+	} catch(err) {
+	    echo 'Error occurred during execution of build pipeline job'
+        echo "${err}"
+        error "${err}"
+	}
+}
+
+def packageAndBuildDockerImage(deploymentMap) {
+	def result = null
+	try {
+	    result = build(job: deploymentMap.packagePipelineJob, parameters: [
+	      [$class: 'StringParameterValue', name: 'deploymentMap', value: deploymentMap.toString()]
+	    ], propagate: true, wait: true)
+	    return result
+	} catch(err) {
+	    echo 'Error occurred during execution of package pipeline job'
+	    echo "${err}"
+	    error "${err}"
+	}
+}
+
+def updateVersionOnRepository(deploymentMap) {
+  if((deploymentMap.branchName.startsWith("release/") || deploymentMap.branchName.startsWith("hotfix/")) && deploymentMap.buildNumber == "1") {
+        build job: deploymentMap.gitUpdateJob, parameters: [
+           [$class: 'StringParameterValue', name: 'branch', value: deploymentMap.branchName],
+           [$class: 'StringParameterValue', name: 'version', value: deploymentMap.updatedVersion]
+        ], wait: true, propagate: true
+  }
+}
+
+def sendEmail(subject, body, recipients) {
+  try {
+      emailext(body: body, mimeType: 'text/html',
+            attachLog: true, compressLog: false, subject: subject,
+            to: recipients)
+  } catch(err) {
+      echo 'Failed to send email notification to ${recipients}'
+      echo "${err}"
+  }
+}
+
+def deploy(deploymentMap, track, tag) {
+  def trackDeployments = deploymentMap.deployments[track]
+  def deployment = null
+  def promoters = null
+  def ordinal = 3
+  for(int i = 0; i < trackDeployments.size(); i++) {
+       deployment = trackDeployments.get(i)
+       if(!deployment.active) continue
+       echo '\u27A1 Current deployment: '
+       echo JsonOutput.prettyPrint(deployment.toString())
+       if(deployment.notifyPromoters) {
+            node {
+                 configFileProvider([configFile(fileId: deploymentMap.deployments.approverFileIds[track], variable: 'PROMOTERS')]) {
+                      promoters = readFile encoding: 'UTF-8', file: env.PROMOTERS
+                      sendEmail("Jenkins - Promotion Available [${deployment.name}(${deployment.namespace})]", '${SCRIPT, template="'+deploymentMap.emailTemplate+'"}', promoters)
+                 }
+            }
+       }
+       def approver = null
+       if(deployment.manualApproval) {
+            approver = input(id: deployment.name, submitterParameter: 'submitter', message: "Deploy to " + deployment.name + "?", ok: 'Deploy')
+       }
+       waitUntil {
+            try {
+                 if(canDeploy(deploymentMap, approver, deployment.environment)) {
+                      build job: deploymentMap.deployPipelineJob, parameters: [
+                         [$class: 'StringParameterValue', name: 'deploymentMap', value: deploymentMap.toString()], 
+                         [$class: 'StringParameterValue', name: 'deploymentSpec', value: deployment.toString()],
+                         [$class: 'StringParameterValue', name: 'tag', value: tag.toString()]
+                      ]
+                      milestone label: "Deployment ${deployment.name} completed", ordinal: ordinal++
+                      return true
+                 } else {
+                      approver = input(id: deployment.name, submitterParameter: 'submitter', message: "User " + approver + " is not allowed to deploy, retry?", ok: 'Retry')
+                      return false
+                 }
+            } catch(err) {
+                 echo 'Error occurred during deployment attempt'
+                 echo "${err}"
+                 approver = input(id: deployment.name, submitterParameter: 'submitter', message: 'Retry?', ok: 'Retry')
+                 return false
+            }
+       }
+  }
+}
+
+def canDeploy(deploymentMap, approver, environment) {
+   if(approver == null) { return true }
+   def permissionsList = null
+   node {
+        configFileProvider([configFile(fileId: deploymentMap.environmentPermissionsFileId, variable: 'PERMISSIONS')]) {
+             permissionsList = readJSON file: env.PERMISSIONS
+        }
+   }
+   if(permissionsList.get(environment) != null && permissionsList.get(environment).contains(approver) || permissionsList.get(environment)[0].equals("**")) {
+        return true
+   }
+   return false
+}

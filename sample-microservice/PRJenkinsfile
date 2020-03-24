@@ -1,0 +1,16 @@
+pipeline {
+	agent any
+	stages {
+	     stage('Build And Unit Test') {
+	          steps {
+	               script {
+                        nvm('11.4.0') {
+                            // validation
+                            sh "npm install"
+                        	sh "npm test"
+                        }
+                   }
+              }
+	     }
+	}
+}

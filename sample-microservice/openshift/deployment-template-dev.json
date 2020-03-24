@@ -1,0 +1,194 @@
+{
+   "kind":"Template",
+   "apiVersion":"v1",
+   "metadata":{
+      "name":"microservice-template",
+      "annotations":{
+         "openshift.io/display-name":"microservice-template",
+         "description":"Microservice deployment template",
+         "iconClass":"icon-database",
+         "tags":"microservice"
+      }
+   },
+   "objects":[
+      {
+         "kind":"DeploymentConfig",
+         "apiVersion":"v1",
+         "metadata":{
+            "name":"${NAME}",
+            "labels":{
+               "app":"${NAME}",
+               "environment": "${ENVIRONMENT}",
+               "version": "${VERSION}",
+               "track": "${TRACK}"
+            }
+         },
+         "spec":{
+            "strategy":{
+               "type":"Rolling",
+               "rollingParams":{
+                  "updatePeriodSeconds":1,
+                  "intervalSeconds":1,
+                  "timeoutSeconds":6000
+               }
+            },
+            "triggers":[
+
+            ],
+            "replicas":1,
+            "revisionHistoryLimit":10,
+            "test":false,
+            "selector":{
+               "app":"${NAME}",
+               "environment": "${ENVIRONMENT}",
+               "deploymentconfig":"${NAME}"
+            },
+            "template":{
+               "metadata":{
+                  "labels":{
+                     "app":"${NAME}",
+               		   "environment": "${ENVIRONMENT}",
+                     "deploymentconfig":"${NAME}"
+                  }
+               },
+               "spec":{
+                  "volumes":[
+                      {
+                        "name": "env-config",
+                        "configMap": {
+                            "name": "dev-env-variables"
+                        }
+                      }
+                  ],
+                  "containers":[
+                     {
+                        "name":"${NAME}",
+                        "image":"${IMAGE}:${VERSION}",
+                        "ports":[
+                             {
+                                "name": "http",
+                                "containerPort": 3000,
+                                "protocol": "TCP",
+                                "port": 3000,
+                                "targetPort": 3000
+                             }
+                        ],
+                        "env":[
+                             {
+                                "name": "SECRET_TEXT",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                      "name": "dev-secret-text",
+                                      "key": "secret-text-001"
+                                    }
+                                }
+                             },
+                             {
+                                "name": "API_KEY_1",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                      "name": "dev-api-keys",
+                                      "key": "key-1"
+                                    }
+                                }
+                             },
+                             {
+                                "name": "GREETING",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                      "name": "dev-greeting-message",
+                                      "key": "greeting"
+                                    }
+                                }
+                             }
+                        ],
+                        "resources":{
+                           "requests":{
+                              "cpu":"300m",
+                              "memory":"256Mi"
+                           },
+                           "limits":{
+                              "memory":"1Gi"
+                           }
+                        },
+                        "volumeMounts":[
+                            {
+                              "name": "env-config",
+                              "mountPath": "/usr/src/app/env"
+                            }
+                        ],
+                        "terminationMessagePath":"/dev/termination-log",
+                        "imagePullPolicy":"Always"
+                     }
+                  ],
+                  "restartPolicy":"Always",
+                  "terminationGracePeriodSeconds":30,
+                  "dnsPolicy":"ClusterFirst",
+                  "serviceAccountName": "${SERVICEACCOUNT}",
+                  "serviceAccount": "${SERVICEACCOUNT}",
+                  "securityContext":{
+
+                  }
+               }
+            }
+         }
+      },
+      {
+         "apiVersion":"v1",
+         "kind":"Service",
+         "metadata":{
+            "name":"${NAME}",
+            "labels":{
+               "app":"${NAME}",
+               "environment": "${ENVIRONMENT}"
+            }
+         },
+         "spec":{
+            "ports":[
+                  {
+                    "name": "http",
+                    "containerPort": 3000,
+                    "protocol": "TCP",
+                    "port": 3000,
+                    "targetPort": 3000
+                  }
+            ],
+            "selector":{
+               "deploymentconfig":"${NAME}"
+            }
+         }
+      }
+   ],
+   "parameters":[
+      {
+         "name":"NAME",
+         "description":"The name of the deployed item",
+         "required":true
+      },
+      {
+         "name":"ENVIRONMENT",
+         "description":"Deployment environment",
+         "required":true
+      },
+      {
+         "name":"IMAGE",
+         "description":"The image to use for the container",
+         "required":true
+      },
+      {
+         "name":"VERSION",
+         "description":"The version of the release",
+         "required":true
+      },
+      {
+         "name":"SERVICEACCOUNT",
+         "description":"The Pod Service Account",
+         "required":true
+      },
+      {
+         "name": "TRACK",
+         "description": "Deployment track - develop, release, master",
+         "required": true
+      }
+   ]
+}

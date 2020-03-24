@@ -1,0 +1,23 @@
+{
+  "application": "phub-microservice-payments-welcome",
+  "appName": "ketandocker01/ketandockerrepo",
+  "buildPipelineJob": "Payments-Hub/hello-payments/Build_Pipelines/Build",
+  "packagePipelineJob": "Payments-Hub/hello-payments/Build_Pipelines/Package",
+  "deployPipelineJob": "Payments-Hub/hello-payments/Build_Pipelines/Deploy",
+  "nodeVersion": "11.4.0",
+  "dockerRegistry": "docker.io",
+  "dockerRegistryCredentialsId": "ashtwentyfour-docker",
+  "gitUpdateJob": "Payments-Hub/hello-payments/test",
+  "npmConfigFileId": "npmrc-ashwin",
+  "sendEmailOnFailure": "off",
+  "notifyReleaseVersionSelectors": false,
+  "releaseVersionSelectorsFileId": "release-version-selectors",
+  "emailTemplate": "jenkins-email.template",
+  "openShiftCredentialsId": "ashwin-openshift",
+  "openShiftURL": "https://localhost:8443",
+  "deploymentFileId": "deployments",
+  "environmentPermissionsFileId": "environment-permissions",
+  "sonarCredentialsId": "ashwin-sonarcloud",
+  "sonarURL": "https://sonarcloud.io",
+  "runSonarScans": false
+}

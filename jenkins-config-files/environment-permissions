@@ -1,0 +1,7 @@
+{
+  "dev": ["**"],
+  "prod": ["Ketan Chhatbar"],
+  "at": ["Ketan Chhatbar"],
+  "it": ["Ketan Chhatbar"],
+  "preprod": ["Ketan Chhatbar"]
+}

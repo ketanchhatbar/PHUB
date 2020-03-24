@@ -1,0 +1,63 @@
+{
+  "approverFileIds": {
+    "dev": "dev-approvers",
+    "prod": "prod-approvers",
+    "it": "integration-test-approvers",
+    "at": "acceptance-test-approvers",
+    "preprod": "pre-prod-approvers"
+  },
+  "develop": [
+    {
+      "name": "dev-deployment-1",
+      "namespace": "devops-101",
+      "notifyApprovers": false,
+      "environment": "dev",
+      "manualApproval": true,
+      "exposeRoutes": false,
+      "active": true,
+      "scale": false,
+      "serviceaccount": "express-sa",
+      "replicas": 2
+    },
+    {
+      "name": "it-deployment-1",
+      "namespace": "devops-102",
+      "notifyApprovers": false,
+      "environment": "it",
+      "manualApproval": true,
+      "exposeRoutes": false,
+      "active": true,
+      "scale": false,
+      "serviceaccount": "express-sa",
+      "replicas": 2
+    }
+  ],
+  "release": [
+    {
+      "name": "at-deployment-1",
+      "namespace": "devops-103",
+      "notifyApprovers": false,
+      "environment": "at",
+      "manualApproval": true,
+      "exposeRoutes": false,
+      "active": true,
+      "scale": true,
+      "serviceaccount": "express-sa",
+      "replicas": 2
+    }
+  ],
+  "master": [
+    {
+      "name": "prod-deployment-1",
+      "namespace": "devops-104",
+      "notifyApprovers": false,
+      "environment": "at",
+      "manualApproval": true,
+      "exposeRoutes": true,
+      "active": true,
+      "scale": true,
+      "serviceaccount": "express-sa-prod",
+      "replicas": 2
+    }
+  ]
+}
