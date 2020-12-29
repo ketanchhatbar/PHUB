@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ArgoCD
+metadata:
+  name: argocd-springboot-workshop-feb-2021
+  namespace: argocd-springboot-workshop-feb-2021
+spec:
+  server:
+    route: true
+  dex:
+    openShiftOAuth: true
+    image: quay.io/ablock/dex
+    version: openshift-connector
+  rbac:
+    policy: |
+      g, system:cluster-admins, role:admin
